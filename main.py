@@ -1,13 +1,28 @@
 from typing import Union, List, Dict
 from contextlib import asynccontextmanager
 import os
-
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 
 models: Dict[str, SentenceTransformer] = {}
 model_name = os.getenv("MODEL", "all-MiniLM-L6-v2")
+api_key = os.getenv("API_KEY")
+
+if not api_key:
+    raise ValueError("API_KEY environment variable must be set")
+
+security = HTTPBearer()
+
+def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
+    if credentials.credentials != api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return credentials.credentials
 
 
 class EmbeddingRequest(BaseModel):
@@ -48,7 +63,10 @@ app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/v1/embeddings")
-async def embedding(item: EmbeddingRequest) -> EmbeddingResponse:
+async def embedding(
+    item: EmbeddingRequest,
+    api_key: str = Depends(verify_api_key)
+) -> EmbeddingResponse:
     model: SentenceTransformer = models[model_name]
     if isinstance(item.input, str):
         vectors = model.encode(item.input)

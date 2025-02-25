@@ -1,4 +1,4 @@
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Optional
 from contextlib import asynccontextmanager
 import os
 from fastapi import FastAPI, HTTPException, Security, Depends
@@ -10,19 +10,24 @@ models: Dict[str, SentenceTransformer] = {}
 model_name = os.getenv("MODEL", "all-MiniLM-L6-v2")
 api_key = os.getenv("API_KEY")
 
-if not api_key:
-    raise ValueError("API_KEY environment variable must be set")
+security = HTTPBearer(auto_error=False)
 
-security = HTTPBearer()
-
-def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
-    if credentials.credentials != api_key:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid API key",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return credentials.credentials
+def verify_api_key(credentials: Optional[HTTPAuthorizationCredentials] = Security(security)):
+    if api_key:
+        if not credentials:
+            raise HTTPException(
+                status_code=401,
+                detail="API key required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if credentials.credentials != api_key:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid API key",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return credentials.credentials
+    return None
 
 
 class EmbeddingRequest(BaseModel):
@@ -65,7 +70,7 @@ app = FastAPI(lifespan=lifespan)
 @app.post("/v1/embeddings")
 async def embedding(
     item: EmbeddingRequest,
-    api_key: str = Depends(verify_api_key)
+    api_key: Optional[str] = Depends(verify_api_key)
 ) -> EmbeddingResponse:
     model: SentenceTransformer = models[model_name]
     if isinstance(item.input, str):
